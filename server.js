@@ -1,49 +1,65 @@
-require("dotenv").config();
-const express = require("express");
-const axios = require("axios");
+import express from "express";
+import axios from "axios";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GUPSHUP_API_KEY = process.env.GUPSHUP_API_KEY;
-const GUPSHUP_NUMBER = process.env.GUPSHUP_NUMBER;
 
-// Rota para receber os dados do ManyChat
 app.post("/gerar-mensagem", async (req, res) => {
-    const { tipo_de_conteudo, nicho, subnicho, nivel_de_comunicacao, estilo_de_conteudo, formulas_narrativas, tipo_de_tema, gancho, tipo_de_cta, numero_usuario } = req.body;
+  try {
+    const { whatsappID, pergunta } = req.body;
 
-    const prompt = `Crie um ${tipo_de_conteudo} para o nicho ${nicho} - ${subnicho}, direcionado para ${nivel_de_comunicacao}. O tom deve ser ${estilo_de_conteudo}, seguindo ${formulas_narrativas}. O conteúdo deve começar com ${gancho}, abordar ${tipo_de_tema} e finalizar com ${tipo_de_cta}.`;
-
-    try {
-        // Chamada para a API do ChatGPT
-        const response = await axios.post("https://api.openai.com/v1/chat/completions", {
-            model: "gpt-4",
-            messages: [{ role: "user", content: prompt }],
-            max_tokens: 300
-        }, {
-            headers: { Authorization: `Bearer ${OPENAI_API_KEY}` }
-        });
-
-        const respostaChatGPT = response.data.choices[0].message.content;
-
-        // Enviar resposta para o WhatsApp via Gupshup
-        await axios.post("https://api.gupshup.io/sm/api/v1/msg", null, {
-            headers: { "apikey": GUPSHUP_API_KEY },
-            params: {
-                channel: "whatsapp",
-                source: GUPSHUP_NUMBER,
-                destination: numero_usuario,
-                message: respostaChatGPT,
-                msg_type: "text"
-            }
-        });
-
-        res.json({ status: "Mensagem enviada para WhatsApp!", resposta: respostaChatGPT });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    if (!whatsappID || !pergunta) {
+      return res.status(400).json({ error: "Faltam parÃ¢metros obrigatÃ³rios." });
     }
+
+    // Chamada para API do ChatGPT
+    const openaiResponse = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4",
+        messages: [{ role: "system", content: pergunta }],
+        max_tokens: 300,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const respostaChatGPT = openaiResponse.data.choices[0].message.content;
+
+    // Enviar resposta para WhatsApp via Gupshup
+    await axios.post(
+      "https://api.gupshup.io/sm/api/v1/msg",
+      {
+        channel: "whatsapp",
+        source: process.env.GUPSHUP_SOURCE,
+        destination: whatsappID,
+        message: respostaChatGPT,
+        "msg_type": "text",
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GUPSHUP_API_KEY}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+
+    return res.json({ status: "Mensagem enviada!", resposta: respostaChatGPT });
+  } catch (error) {
+    console.error("Erro no servidor:", error);
+    return res.status(500).json({ error: error.message });
+  }
 });
 
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
+});
